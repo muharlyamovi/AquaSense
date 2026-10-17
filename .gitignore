@@ -1,0 +1,12 @@
+.pio/
+.vscode/
+.idea/
+*.elf
+*.map
+build.log
+*.pyc
+__pycache__/
+.DS_Store
+Thumbs.db
+*.bin
+!ota/*.json
