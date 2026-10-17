@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "1.1.2"
 
 // ===================== Пины ESP32-C3 =====================
 // Из deep sleep будят только GPIO0..GPIO5, а АЦП1 есть только на GPIO0..GPIO4,
@@ -24,7 +24,7 @@
 #define BUZZER_ENABLED      0
 
 // ===================== Тайминги =====================
-#define FLOW_DEBOUNCE_MS        40
+#define FLOW_DEBOUNCE_MS        2   // только дребезг контакта; больше — режет частые импульсы турбины
 #define FLOW_IDLE_MS            4000UL              // сколько ждать следующий импульс перед сном
 #define TDS_MIN_INTERVAL_S      (20UL * 60)         // не чаще одного замера TDS за 20 минут
 #define DAILY_INTERVAL_S        (24UL * 3600)       // ежедневная проверка: батарея, история, напоминания
@@ -63,8 +63,10 @@
 #define AP_OFF_AFTER_OK_MS 20000UL
 #define MDNS_NAME         "aquasense"
 #define DEFAULT_SHOP_URL  "https://example.com/aquasense"
-#define DEFAULT_OTA_URL   ""        // HTTPS-ссылка на manifest.json; задаётся в настройках
+#define DEFAULT_OTA_URL   "https://raw.githubusercontent.com/muharlyamovi/AquaSense/main/ota/manifest.json"
+#define DEFAULT_GH_REPO   "muharlyamovi/AquaSense"
 #define OTA_INTERVAL_S    (24UL * 3600)
+#define CLOUD_INTERVAL_S  (6UL * 3600)   // выгрузка статуса в GitHub, не чаще
 
 #define HISTORY_DAYS      30
 #define TIME_VALID_MIN    1700000000UL

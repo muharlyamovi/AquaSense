@@ -6,3 +6,4 @@ bool webLoop();     // false — пора спать
 void webStop();
 bool webRunning();
 bool webIsAp();
+bool webFlowCalActive();

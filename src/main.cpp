@@ -10,10 +10,13 @@
 #include "web.h"
 #include "app.h"
 #include "ota.h"
+#include "cloud.h"
 
 static portMUX_TYPE flowMux = portMUX_INITIALIZER_UNLOCKED;
 static volatile uint32_t isrPulses = 0;
+static volatile uint32_t isrEdges = 0;
 static volatile uint32_t isrLastUs = 0;
+static int flowPrev = HIGH;
 static uint32_t lastPulseMs = 0;
 static String pendingMsg;
 
@@ -21,9 +24,11 @@ enum BtnAction { BTN_SERVICE, BTN_AP, BTN_RESET };
 
 // ---------------- Счётчик воды ----------------
 
-static void IRAM_ATTR onFlowEdge() {
+static void IRAM_ATTR onFlowChange() {
+  if (gpio_get_level((gpio_num_t)PIN_FLOW) != 0) return;
   uint32_t t = micros();
   portENTER_CRITICAL_ISR(&flowMux);
+  isrEdges++;
   if (t - isrLastUs >= FLOW_DEBOUNCE_MS * 1000UL) {
     isrPulses++;
     isrLastUs = t;
@@ -31,7 +36,23 @@ static void IRAM_ATTR onFlowEdge() {
   portEXIT_CRITICAL_ISR(&flowMux);
 }
 
+// опрос GPIO на случай, если Wi-Fi проглотил прерывание
+static void flowPoll() {
+  int s = digitalRead(PIN_FLOW);
+  if (flowPrev == HIGH && s == LOW) {
+    uint32_t t = micros();
+    portENTER_CRITICAL(&flowMux);
+    if (t - isrLastUs >= FLOW_DEBOUNCE_MS * 1000UL) {
+      isrPulses++;
+      isrLastUs = t;
+    }
+    portEXIT_CRITICAL(&flowMux);
+  }
+  flowPrev = s;
+}
+
 uint32_t flowCollect() {
+  flowPoll();
   portENTER_CRITICAL(&flowMux);
   uint32_t n = isrPulses;
   isrPulses = 0;
@@ -42,6 +63,13 @@ uint32_t flowCollect() {
     LOG("pulses +%u, total %u\n", n, C.totalPulses);
   }
   return n;
+}
+
+uint32_t flowEdgeCount() {
+  portENTER_CRITICAL(&flowMux);
+  uint32_t e = isrEdges;
+  portEXIT_CRITICAL(&flowMux);
+  return e;
 }
 
 static bool tdsDue() {
@@ -75,7 +103,8 @@ void notifyFlush() {
   if (!tgReady) pendingMsg = "";
   bool ntpDue = (!timeValid() || now - C.lastNtpEpoch >= NTP_INTERVAL_S) &&
                 (!C.lastNtpTryEpoch || now - C.lastNtpTryEpoch >= NTP_RETRY_S);
-  if (pendingMsg.isEmpty() && !ntpDue) return;
+  bool cloudDue = cloudConfigured() && (!C.lastCloudEpoch || now - C.lastCloudEpoch >= CLOUD_INTERVAL_S);
+  if (pendingMsg.isEmpty() && !ntpDue && !cloudDue) return;
 
   bool wasConnected = WiFi.status() == WL_CONNECTED;
   if (!wasConnected) {
@@ -91,6 +120,7 @@ void notifyFlush() {
   if (ntpDue) netSyncTime();
   if (pendingMsg.length()) netTelegram(String(S.devName) + ": " + pendingMsg);
   pendingMsg = "";
+  if (cloudDue) cloudPush();
   if (!wasConnected) {
     netOff();
     setCpuFrequencyMhz(80);
@@ -101,8 +131,8 @@ static void checkAlerts(const Assessment &a) {
   uint32_t now = nowEpoch();
   if (a.fstate == FS_REPLACE) {
     if (!C.lastReminderEpoch || now - C.lastReminderEpoch >= REMINDER_INTERVAL_S) {
-      notifyQueue("Пора заменить картридж «" + String(S.model) + "». Износ " + String((int)a.wear) +
-                  "% (фактор: " + a.reason + "). Заказать: " + shopLink("buy"));
+      notifyQueue("Пора заменить картридж «" + String(S.model) + "». Ресурс " + String((int)a.wear) +
+                  "% (расход, срок и TDS). Заказать: " + shopLink("buy"));
       C.lastReminderEpoch = now;
     }
   } else if (a.fstate == FS_SOON && !C.notifiedSoon) {
@@ -208,6 +238,8 @@ static void serviceSession(bool forceAp) {
   setCpuFrequencyMhz(160);
   readBattery();
   webStart(forceAp);
+  WiFi.setSleep(false);  // иначе модемный сон глотает короткие импульсы геркона
+  attachInterrupt(digitalPinToInterrupt(PIN_FLOW), onFlowChange, CHANGE);
   if (!webIsAp()) notifyQueue("Веб-интерфейс открыт: http://" + WiFi.localIP().toString() + " (5 минут)");
   uint32_t lastLeakPoll = millis(), lastBlink = 0;
   while (webLoop()) {
@@ -220,7 +252,7 @@ static void serviceSession(bool forceAp) {
       lastBlink = millis();
       ledBlink(1, 20, 0);
     }
-    if (!webIsAp()) notifyFlush();
+    if (!webIsAp() && !webFlowCalActive()) notifyFlush();
     delay(2);
   }
   webStop();
@@ -320,7 +352,8 @@ void setup() {
   pinMode(PIN_LEAK, INPUT_PULLUP);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   hwInitPins();
-  attachInterrupt(digitalPinToInterrupt(PIN_FLOW), onFlowEdge, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PIN_FLOW), onFlowChange, CHANGE);
+  flowPrev = digitalRead(PIN_FLOW);
 
   storageLoadSettings();
   if (C.magic != COUNTERS_MAGIC) storageLoadCounters();

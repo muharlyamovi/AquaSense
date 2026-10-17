@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b6bcb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<title>AquaSense</title>
+<style>
+:root{--bg:#eef4fa;--card:#fff;--txt:#10243a;--mut:#6b7c90;--pri:#0b6bcb;--ok:#1aa260;--warn:#f0a020;--bad:#e0413a;--line:#c9d6e3}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1620;--card:#16222f;--txt:#e6eef6;--mut:#8ea0b4;--line:#2a3a4c}}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt);padding-bottom:80px}
+header{background:linear-gradient(135deg,#0b6bcb,#22a6e0);color:#fff;padding:18px 16px 48px}
+header h1{margin:0;font-size:21px}header small{opacity:.85}
+main{max-width:560px;margin:-36px auto 0;padding:0 12px}
+.card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.card h2{margin:0 0 10px;font-size:16px}
+.row{display:flex;gap:14px;align-items:center}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kv{background:var(--bg);border-radius:12px;padding:10px}
+.kv b{display:block;font-size:20px}.kv span{color:var(--mut);font-size:12px}
+.badge{display:inline-block;padding:4px 12px;border-radius:99px;color:#fff;font-weight:600;font-size:13px}
+.ring{width:118px;height:118px;flex:none}
+.btn{display:block;width:100%;padding:13px;border:0;border-radius:12px;background:var(--pri);color:#fff;font-size:15px;font-weight:600;margin-top:10px;cursor:pointer;text-align:center;text-decoration:none}
+.btn.sec{background:var(--bg);color:var(--pri)}.btn.green{background:var(--ok)}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+input{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--txt);font-size:15px}
+.alert{border-radius:12px;padding:12px 14px;margin-bottom:12px;color:#fff;font-weight:600;display:none}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);box-shadow:0 -2px 10px rgba(0,0,0,.08);padding-bottom:env(safe-area-inset-bottom);z-index:5}
+nav button{flex:1;border:0;background:none;padding:9px 0 11px;color:var(--mut);font-size:12px}
+nav button.on{color:var(--pri);font-weight:700}nav i{display:block;font-style:normal;font-size:19px}
+.tab{display:none}.tab.on{display:block}
+.mut{color:var(--mut);font-size:13px}
+.bar{height:10px;background:var(--bg);border-radius:6px;overflow:hidden}.bar>div{height:100%;width:0;background:var(--pri);transition:width .4s}
+canvas{width:100%;height:190px;display:block}
+.toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:10px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:9}
+</style></head><body>
+<header><h1 id="hName">AquaSense</h1><small id="hSub">облачный кабинет</small></header>
+<main>
+<div id="gate" class="card" style="display:none">
+ <h2>Доступ к данным</h2>
+ <div class="mut">Страница читает статус из GitHub. Токен остаётся в этом телефоне.</div>
+ <label>Репозиторий</label><input id="repo" value="muharlyamovi/AquaSense">
+ <label>GitHub token (Contents: Read)</label><input id="token" type="password" autocomplete="off">
+ <button class="btn" onclick="saveGate()">Открыть</button>
+</div>
+
+<div id="app">
+<div id="alert" class="alert"></div>
+
+<section id="t-home" class="tab on">
+ <div class="card"><div class="row">
+  <svg class="ring" viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" stroke="#dde7f1" stroke-width="12" fill="none"/>
+   <circle id="ringArc" cx="60" cy="60" r="52" stroke="#1aa260" stroke-width="12" fill="none" stroke-linecap="round" stroke-dasharray="326.7" stroke-dashoffset="326.7" transform="rotate(-90 60 60)" style="transition:stroke-dashoffset .6s"/>
+   <text id="ringTxt" x="60" y="62" text-anchor="middle" font-size="26" font-weight="700" fill="currentColor">–</text>
+   <text x="60" y="82" text-anchor="middle" font-size="11" fill="#8ea0b4">ресурс</text></svg>
+  <div><div class="mut">Картридж</div><div id="fState" style="font-size:19px;font-weight:700">–</div><div id="fLeft" class="mut"></div></div>
+ </div></div>
+ <div class="card"><h2>Качество воды</h2>
+  <div class="row"><span id="wBadge" class="badge" style="background:#8a97a6">нет данных</span><span id="wNote" class="mut"></span></div>
+  <div class="grid" style="margin-top:12px">
+   <div class="kv"><b id="vTds">–</b><span>TDS сейчас, ppm</span></div>
+   <div class="kv"><b id="vTemp">–</b><span>Температура, °C</span></div>
+   <div class="kv"><b id="vBase">–</b><span>TDS нового картриджа</span></div>
+   <div class="kv"><b id="vAge">–</b><span>Последнее обновление</span></div>
+  </div>
+ </div>
+ <div class="card"><h2>Устройство</h2><div class="grid">
+  <div class="kv"><b id="vBatt">–</b><span id="vBattS">Батарея</span></div>
+  <div class="kv"><b id="vLeak">–</b><span>Протечка</span></div>
+  <div class="kv"><b id="vTotal">–</b><span>Всего прошло, л</span></div>
+  <div class="kv"><b id="vToday">–</b><span>За текущие сутки, л</span></div>
+ </div></div>
+ <div class="card"><h2>Сменные картриджи</h2>
+  <div class="mut" id="shopNote"></div>
+  <a class="btn" id="bBuy" target="_blank" rel="noopener">Заказать картридж</a>
+  <a class="btn green" id="bSub" target="_blank" rel="noopener">Оформить подписку</a>
+ </div>
+</section>
+
+<section id="t-hist" class="tab">
+ <div class="card"><h2>Расход воды, л/сутки</h2><canvas id="cL"></canvas></div>
+ <div class="card"><h2>Средний TDS, ppm</h2><canvas id="cT"></canvas>
+  <div class="mut" style="margin-top:8px">линия — замеры · зелёная — отличная · жёлтая — допустимая · красная — плохая</div></div>
+</section>
+
+<section id="t-cart" class="tab">
+ <div class="card"><h2>Текущий картридж</h2>
+  <div class="mut" id="cInfo"></div>
+  <label>Износ по объёму</label><div class="bar"><div id="bVol"></div></div>
+  <label>Износ по сроку службы</label><div class="bar"><div id="bTime"></div></div>
+  <label>Износ по росту TDS</label><div class="bar"><div id="bTds"></div></div>
+ </div>
+ <div class="card"><h2>Пороги TDS</h2>
+  <div class="grid">
+   <div class="kv"><b id="pT1">–</b><span>Отличная до, ppm</span></div>
+   <div class="kv"><b id="pT2">–</b><span>Хорошая / допустимая, ppm</span></div>
+   <div class="kv"><b id="pT3">–</b><span>Плохая выше, ppm</span></div>
+   <div class="kv"><b id="pFw">–</b><span>Прошивка</span></div>
+  </div>
+  <div class="mut" style="margin-top:10px">Сменить картридж и пороги можно на самом устройстве, когда оно в домашнем Wi-Fi.</div>
+ </div>
+</section>
+
+<section id="t-set" class="tab">
+ <div class="card"><h2>Облако</h2>
+  <div class="mut" id="cloudInfo">Данные приходят с устройства в GitHub, эта страница их показывает.</div>
+  <button class="btn" onclick="load()">Обновить сейчас</button>
+  <label>Репозиторий</label><input id="s_repo">
+  <label>Token (если открываете без компьютера)</label><input id="s_token" type="password" placeholder="не нужен, если есть локальный сервер" autocomplete="off">
+  <button class="btn sec" onclick="saveGate()">Сохранить доступ</button>
+ </div>
+ <div class="card"><h2>На телефон</h2>
+  <div class="mut">В Safari: «Поделиться» → «На экран Домой». В Chrome: меню → «Добавить на главный экран». Откроется как приложение с вкладками внизу.</div>
+ </div>
+ <div class="card"><h2>Система</h2>
+  <div class="mut" id="sysInfo"></div>
+ </div>
+</section>
+</div>
+</main>
+
+<nav>
+ <button class="on" data-t="home"><i>&#9673;</i>Главная</button>
+ <button data-t="hist"><i>&#9636;</i>История</button>
+ <button data-t="cart"><i>&#9678;</i>Картридж</button>
+ <button data-t="set"><i>&#8801;</i>Настройки</button>
+</nav>
+<div id="toast" class="toast"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const WC=[['нет данных','#8a97a6'],['Отличная','#1aa260'],['Хорошая','#4caf50'],['Допустимая','#f0a020'],['Плохая','#e0413a']];
+const FS=[['В норме','#1aa260'],['Скоро замена','#f0a020'],['Требуется замена','#e0413a']];
+let st=null,tab='home';
+function toast(m){const t=$('toast');t.textContent=m;t.style.opacity=1;clearTimeout(t._h);t._h=setTimeout(()=>t.style.opacity=0,2500)}
+function f(v,d){return v==null||isNaN(v)?'–':(+v).toFixed(d||0)}
+function ago(s){if(s<90)return 'только что';if(s<5400)return Math.round(s/60)+' мин назад';if(s<172800)return Math.round(s/3600)+' ч назад';return Math.round(s/86400)+' дн. назад'}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function bar(id,v){const e=$(id);e.style.width=Math.min(100,v||0)+'%';e.style.background=v>=100?'var(--bad)':v>=80?'var(--warn)':'var(--pri)'}
+function cred(){return {repo:localStorage.getItem('as_repo')||'muharlyamovi/AquaSense',token:localStorage.getItem('as_token')||''}}
+function saveGate(){const repo=($('s_repo')||$('repo')).value.trim()||'muharlyamovi/AquaSense';const tok=($('s_token')||$('token')).value.trim();localStorage.setItem('as_repo',repo);if(tok)localStorage.setItem('as_token',tok);toast('Сохранено');load()}
+function show(t){tab=t;document.querySelectorAll('.tab').forEach(e=>e.classList.toggle('on',e.id=='t-'+t));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t==t));if(t=='hist'&&st)drawHist(st)}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.t));
+
+function render(s){st=s;
+ const now=Math.floor(Date.now()/1000);
+ $('hName').textContent=s.name||'AquaSense';
+ $('hSub').textContent=(s.now?ago(now-s.now):'облако')+' · прошивка '+(s.fw||'');
+ const fs=FS[s.fstate]||FS[0],left=Math.max(0,100-(s.wear||0)),arc=$('ringArc');
+ arc.style.strokeDashoffset=(326.7*(1-left/100)).toFixed(1);arc.style.stroke=fs[1];
+ $('ringTxt').textContent=Math.round(left)+'%';
+ $('fState').textContent=fs[0];$('fState').style.color=fs[1];
+ $('fLeft').innerHTML='Осталось ≈ '+f(s.litersLeft)+' л'+(s.forecast>=0?' · ~'+s.forecast+' дн.':'')+'<br>Качество воды — по TDS. Ресурс картриджа — расход, срок и TDS';
+ const wc=WC[s.wclass]||WC[0];$('wBadge').textContent=wc[0];$('wBadge').style.background=wc[1];
+ $('wNote').textContent=s.sensorFault?'датчик TDS не в воде':s.tempWarn?'вода тёплая':s.wclass==0?'ждём первого замера':s.waterOk?'вода качественная':'вода требует внимания';
+ $('vTds').textContent=f(s.tds);$('vTemp').textContent=f(s.temp,1);
+ $('vBase').textContent=s.base>0?f(s.base):'копится';
+ $('vAge').textContent=s.now?ago(now-s.now):'–';
+ $('vBatt').textContent=s.battMv?s.battPct+'%':'–';$('vBattS').textContent='Батарея'+(s.battMv?' · '+(s.battMv/1000).toFixed(2)+' В':'');
+ const lk=$('vLeak');lk.textContent=s.leak?'ЕСТЬ!':'нет';lk.style.color=s.leak?'var(--bad)':'';
+ $('vTotal').textContent=f(s.total);$('vToday').textContent=f(s.today,1);
+ $('cInfo').innerHTML=esc(s.model||'Картридж')+'<br>Прошло: '+f(s.liters)+' из '+(s.cl||0)+' л за '+f(s.days)+' дн.<br>В среднем '+f(s.avgLpd,1)+' л/сутки';
+ bar('bVol',s.wearVol);bar('bTime',s.wearTime);bar('bTds',s.wearTds);
+ $('pT1').textContent=s.t1||'–';$('pT2').textContent=s.t2||'–';$('pT3').textContent=s.t3||'–';$('pFw').textContent=s.fw||'–';
+ const q='device='+(s.id||'')+'&model='+encodeURIComponent(s.model||'')+'&wear='+Math.round(s.wear||0)+'&liters='+Math.round(s.liters||0);
+ const shop=s.shop||'https://example.com/aquasense';
+ const base=shop+(shop.includes('?')?'&':'?');
+ $('bBuy').href=base+'action=buy&'+q;$('bSub').href=base+'action=subscribe&'+q;
+ $('shopNote').textContent=s.fstate?'Самое время заказать новый картридж.':'С подпиской новый картридж приедет к моменту замены.';
+ $('cloudInfo').textContent='Последние данные: '+(s.now?ago(now-s.now):'нет')+'. Устройство само пишет в GitHub.';
+ $('sysInfo').innerHTML='ID '+(s.id||'–')+' · прошивка '+(s.fw||'–')+'<br>Это облачное приложение. Калибровка и Wi-Fi — на самой плате.';
+ $('s_repo').value=cred().repo;
+ let al=null;
+ if(s.leak)al=['ОБНАРУЖЕНА ПРОТЕЧКА ВОДЫ!','var(--bad)'];
+ else if(s.fstate==2)al=['Пора заменить картридж','var(--bad)'];
+ else if(s.wclass==4)al=['Плохое качество воды','var(--bad)'];
+ else if(s.fstate==1)al=['Скоро потребуется замена картриджа','var(--warn)'];
+ else if(s.battMv&&s.battMv<3450)al=['Низкий заряд батареи','var(--warn)'];
+ const e=$('alert');e.style.display=al?'block':'none';if(al){e.textContent=al[0];e.style.background=al[1]}
+ if(tab=='hist')drawHist(s);
+}
+
+function drawHist(s){
+ const hist=s.hist||[],t1=s.t1||30,t2=s.t2||80,t3=s.t3||150;
+ const L=hist.map(x=>x.l),T=hist.map(x=>x.t||null),lab=hist.map(d=>d.e>1700000000?new Date(d.e*1000).toLocaleDateString(undefined,{day:'numeric',month:'numeric'}):'');
+ if(s.today!=null){L.push(s.today);T.push(s.ema||null);lab.push('сейчас')}
+ chart('cL',L,lab,'#0b6bcb');
+ chart('cT',T,lab,'#0b6bcb',[{y:t1,color:'#1aa260',label:'отл. '+t1},{y:t2,color:'#f0a020',label:'допуст. '+t2},{y:t3,color:'#e0413a',label:'плохо '+t3}]);
+}
+
+function chart(id,vals,labels,color,bands){
+ const c=$(id);if(!c||!c.clientWidth)return;
+ const r=devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;c.width=W*r;c.height=H*r;
+ const x=c.getContext('2d');x.scale(r,r);if(!vals.length)return;
+ const css=getComputedStyle(document.documentElement);
+ const mut=css.getPropertyValue('--mut'),grid=css.getPropertyValue('--line');
+ const marks=(bands||[]).map(b=>+b.y).filter(v=>v>0);
+ const max=Math.max(1,...vals.filter(v=>v!=null),...marks)*1.15,pl=36,pr=54,pb=22,n=Math.max(1,vals.length),w=(W-pl-pr)/n;
+ const Y=v=>(H-pb)*(1-v/max);
+ x.font='11px sans-serif';
+ for(let i=0;i<=4;i++){const y=Y(max*i/4);x.fillStyle=mut;x.fillText(Math.round(max*i/4),0,y+4);x.globalAlpha=.28;x.fillStyle=grid;x.fillRect(pl,y,W-pl-pr,1);x.globalAlpha=1}
+ (bands||[]).forEach(b=>{if(!(+b.y>0)||b.y>max)return;const y=Y(b.y);x.strokeStyle=b.color;x.setLineDash([5,4]);x.lineWidth=1.2;x.beginPath();x.moveTo(pl,y);x.lineTo(W-pr,y);x.stroke();x.setLineDash([]);x.fillStyle=b.color;x.fillText(b.label,W-pr+4,y+4)});
+ x.fillStyle=mut;const step=Math.ceil(n/6);labels.forEach((l,i)=>{if(i%step==0||i==n-1)x.fillText(l,pl+w*i,H-4)});
+ x.strokeStyle=color;x.fillStyle=color;x.lineWidth=2;x.lineJoin='round';
+ x.beginPath();let started=false;
+ vals.forEach((v,i)=>{if(v==null||v==='')return;const X=pl+w*i+w/2,y=Y(+v||0);started?x.lineTo(X,y):x.moveTo(X,y);started=true});
+ x.stroke();
+ vals.forEach((v,i)=>{if(v==null||v==='')return;const X=pl+w*i+w/2,y=Y(+v||0);x.beginPath();x.arc(X,y,3,0,Math.PI*2);x.fill()});
+}
+
+async function load(){
+ $('hSub').textContent='загрузка…';
+ let s=null;
+ try{const loc=await fetch('/latest.json',{cache:'no-store'});if(loc.ok)s=await loc.json()}catch(e){}
+ if(!s){
+  const c=cred();
+  if(!c.token){$('gate').style.display='';$('app').style.display='none';$('hSub').textContent='нужен token';return}
+  const r=await fetch('https://api.github.com/repos/'+c.repo+'/contents/data/latest.json',{
+   headers:{Authorization:'Bearer '+c.token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+  });
+  if(r.status===404){$('hSub').textContent='данных ещё нет';return}
+  if(!r.ok){$('hSub').textContent='ошибка GitHub '+r.status;return}
+  const meta=await r.json();
+  s=JSON.parse(decodeURIComponent(escape(atob(meta.content.replace(/\n/g,'')))));
+ }
+ $('gate').style.display='none';$('app').style.display='';
+ render(s);
+}
+load();setInterval(load,60000);
+</script></body></html>

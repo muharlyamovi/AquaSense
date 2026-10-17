@@ -6,6 +6,7 @@
 #include "app.h"
 #include "web_ui.h"
 #include "ota.h"
+#include "cloud.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
@@ -25,6 +26,9 @@ static WifiTest wifiTest = WT_IDLE;
 static uint32_t wifiTestStart = 0;
 static uint32_t wifiOkAt = 0;
 static char pendSsid[33], pendPass[65];
+static bool flowCalOn = false;
+static uint32_t flowCalStart = 0;
+static uint32_t flowCalEdgeStart = 0;
 
 static float r1(float v) { return roundf(v * 10.0f) / 10.0f; }
 
@@ -60,6 +64,9 @@ static void fillStatus(JsonDocument &d) {
   d["autoOta"] = S.autoOta != 0;
   d["otaHours"] = S.otaHours ? S.otaHours : 24;
   d["otaAge"] = C.lastOtaCheckEpoch ? (int32_t)(now - C.lastOtaCheckEpoch) : -1;
+  d["cloudSet"] = S.ghToken[0] != 0;
+  d["cloudAge"] = C.lastCloudEpoch ? (int32_t)(now - C.lastCloudEpoch) : -1;
+  d["ghRepo"] = S.ghRepo;
   d["mode"] = apMode ? "ap" : "sta";
   d["ip"] = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
   d["ssid"] = S.ssid;
@@ -90,6 +97,9 @@ static void fillStatus(JsonDocument &d) {
   d["wearTds"] = r1(a.wearTds);
   d["fstate"] = (int)a.fstate;
   d["reason"] = a.reason;
+  d["t1"] = S.tdsT1;
+  d["t2"] = S.tdsT2;
+  d["t3"] = S.tdsT3;
   d["forecast"] = a.forecastDays;
   d["avgLpd"] = r1(a.avgLpd);
   d["install"] = C.installEpoch;
@@ -131,6 +141,8 @@ static void handleSettingsGet() {
   d["ota"] = S.otaUrl;
   d["autoOta"] = S.autoOta ? 1 : 0;
   d["otaHours"] = S.otaHours ? S.otaHours : 24;
+  d["ghrepo"] = S.ghRepo;
+  d["ghSet"] = S.ghToken[0] != 0;
   sendJson(d);
 }
 
@@ -160,6 +172,9 @@ static void handleSettingsPost() {
     long h = server.arg("otaHours").toInt();
     if (h >= 6 && h <= 168) S.otaHours = (uint16_t)h;
   }
+  argStr("ghrepo", S.ghRepo, sizeof(S.ghRepo));
+  if (server.arg("ght").length() > 0) strlcpy(S.ghToken, server.arg("ght").c_str(), sizeof(S.ghToken));
+  if (server.hasArg("ghclear")) S.ghToken[0] = 0;
   storageSaveSettings();
   handleSettingsGet();
 }
@@ -181,6 +196,65 @@ static void handleMeasure() {
 static void handleReplace() {
   resetCartridge();
   handleStatus();
+}
+
+static uint32_t flowCalPulses() {
+  flowCollect();
+  return C.totalPulses >= flowCalStart ? C.totalPulses - flowCalStart : 0;
+}
+
+static void sendFlowCal(bool ok = true, const char *err = nullptr) {
+  JsonDocument d;
+  d["ok"] = ok;
+  if (err) d["err"] = err;
+  d["on"] = flowCalOn;
+  d["pulses"] = flowCalOn ? flowCalPulses() : 0;
+  uint32_t edges = flowEdgeCount();
+  d["edges"] = flowCalOn && edges >= flowCalEdgeStart ? edges - flowCalEdgeStart : 0;
+  d["low"] = digitalRead(PIN_FLOW) == LOW;
+  d["lpp"] = S.litersPerPulse;
+  sendJson(d);
+}
+
+static void handleFlowCalGet() { sendFlowCal(); }
+
+static void handleFlowCalPost() {
+  String act = server.arg("action");
+  if (act == "start") {
+    flowCollect();
+    flowCalStart = C.totalPulses;
+    flowCalEdgeStart = flowEdgeCount();
+    flowCalOn = true;
+    timeoutMs = SETUP_TIMEOUT_MS;
+    lastActivity = millis();
+    return sendFlowCal();
+  }
+  if (act == "cancel") {
+    flowCalOn = false;
+    timeoutMs = SERVICE_TIMEOUT_MS;
+    return sendFlowCal();
+  }
+  if (act == "stop") {
+    float liters = server.arg("liters").toFloat();
+    uint32_t n = flowCalPulses();
+    flowCalOn = false;
+    timeoutMs = SERVICE_TIMEOUT_MS;
+    if (liters < 0.1f) return sendFlowCal(false, "укажите, сколько литров налили");
+    if (n < 1) return sendFlowCal(false, "импульсов не было — налейте больше или проверьте геркон");
+    float lpp = liters / (float)n;
+    if (lpp < 0.001f || lpp > 1000.f) return sendFlowCal(false, "нереальное значение, проверьте объём");
+    S.litersPerPulse = lpp;
+    storageSaveSettings();
+    JsonDocument d;
+    d["ok"] = true;
+    d["on"] = false;
+    d["pulses"] = n;
+    d["liters"] = liters;
+    d["lpp"] = lpp;
+    sendJson(d);
+    return;
+  }
+  sendFlowCal(false, "неизвестное действие");
 }
 
 static void handleCalibrate() {
@@ -213,6 +287,9 @@ static void handleHistory() {
   flowCollect();
   d["today"] = r1(litersToday());
   d["todayTds"] = C.dayTdsN ? (int)(C.dayTdsSum / C.dayTdsN) : 0;
+  d["t1"] = S.tdsT1;
+  d["t2"] = S.tdsT2;
+  d["t3"] = S.tdsT3;
   sendJson(d);
 }
 
@@ -287,6 +364,13 @@ static void handleReset() {
   sendOk();
   delay(300);
   appFactoryReset();
+}
+
+static void handleCloudPush() {
+  if (apMode && WiFi.status() != WL_CONNECTED) return sendOk(false, "нужен домашний Wi-Fi с интернетом");
+  if (!cloudConfigured()) return sendOk(false, "задайте GitHub token");
+  bool ok = cloudPush();
+  sendOk(ok, ok ? nullptr : "GitHub не принял данные — проверьте token и доступ к репозиторию");
 }
 
 static void handleOtaCheck() {
@@ -367,6 +451,8 @@ void webStart(bool forceAp) {
   route("/api/measure", HTTP_POST, handleMeasure);
   route("/api/replace", HTTP_POST, handleReplace);
   route("/api/calibrate", HTTP_POST, handleCalibrate);
+  route("/api/flowcal", HTTP_GET, handleFlowCalGet);
+  route("/api/flowcal", HTTP_POST, handleFlowCalPost);
   route("/api/history", HTTP_GET, handleHistory);
   route("/api/scan", HTTP_GET, handleScan);
   route("/api/wifi", HTTP_POST, handleWifi);
@@ -376,6 +462,7 @@ void webStart(bool forceAp) {
   route("/api/reset", HTTP_POST, handleReset);
   route("/api/ota", HTTP_GET, handleOtaCheck);
   route("/api/ota", HTTP_POST, handleOtaUpdate);
+  route("/api/cloud", HTTP_POST, handleCloudPush);
   for (const char *p : {"/generate_204", "/gen_204", "/hotspot-detect.html", "/connecttest.txt", "/ncsi.txt", "/fwlink"})
     route(p, HTTP_ANY, handleCaptive);
   server.onNotFound([]() { lastActivity = millis(); handleNotFound(); });
@@ -384,6 +471,7 @@ void webStart(bool forceAp) {
   running = true;
   sleepRequested = false;
   wifiTest = WT_IDLE;
+  flowCalOn = false;
   timeoutMs = (apMode && !S.ssid[0]) ? SETUP_TIMEOUT_MS : SERVICE_TIMEOUT_MS;
   lastActivity = millis();
 }
@@ -421,6 +509,7 @@ bool webLoop() {
     LOG("AP off, staying on http://%s\n", WiFi.localIP().toString().c_str());
   }
 
+  if (flowCalOn) lastActivity = millis();
   if (sleepRequested) return false;
   return millis() - lastActivity < timeoutMs;
 }
@@ -435,3 +524,4 @@ void webStop() {
 
 bool webRunning() { return running; }
 bool webIsAp() { return apMode; }
+bool webFlowCalActive() { return flowCalOn; }

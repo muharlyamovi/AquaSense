@@ -86,7 +86,8 @@ canvas{width:100%;height:190px;display:block}
 
 <section id="t-hist" class="tab">
  <div class="card"><h2>Расход воды, л/сутки</h2><canvas id="cL"></canvas></div>
- <div class="card"><h2>Средний TDS, ppm</h2><canvas id="cT"></canvas></div>
+ <div class="card"><h2>Средний TDS, ppm</h2><canvas id="cT"></canvas>
+  <div class="mut" id="tdsLeg" style="margin-top:8px">линия — замеры · зелёная — отличная · жёлтая — допустимая · красная — плохая</div></div>
 </section>
 
 <section id="t-cart" class="tab">
@@ -121,13 +122,38 @@ canvas{width:100%;height:190px;display:block}
   <label>Пароль</label><input id="w_pass" type="password">
   <button class="btn" onclick="saveWifi()">Подключить</button>
  </div>
+ <div class="card"><h2>Калибровка счётчика воды</h2>
+  <div class="mut">Налейте известный объём (5–10 л). Счётчик импульсов должен расти сразу, как откроете кран. Потом плата сама посчитает долю литра на один импульс. Если раньше литры «летели» — это как раз частые импульсы при коэффициенте 1 л/имп.</div>
+  <label>Сколько литров нальёте</label><input id="flowLiters" type="number" step="0.1" value="10">
+  <button class="btn" id="bFlowStart" onclick="flowStart()">Начать калибровку</button>
+  <div id="flowRun" style="display:none">
+   <div class="grid" style="margin-top:10px">
+    <div class="kv"><b id="flowPulses">0</b><span>Импульсов</span></div>
+    <div class="kv"><b id="flowPin">–</b><span>Вход GPIO</span></div>
+    <div class="kv"><b id="flowEdges">0</b><span>Сырых фронтов</span></div>
+    <div class="kv"><b id="flowHz">–</b><span>Имп/с сейчас</span></div>
+   </div>
+   <button class="btn green" onclick="flowStop()">Налив закончен — посчитать</button>
+   <button class="btn sec" onclick="flowCancel()">Отмена</button>
+  </div>
+  <div class="mut" id="flowCalRes" style="margin-top:8px"></div>
+  <label>Литров на один импульс</label><input id="s_lpp" type="number" step="0.001">
+  <button class="btn sec" onclick="saveSet()">Сохранить вручную</button>
+ </div>
  <div class="card"><h2>Датчики и пороги</h2>
-  <label>Литров на один импульс счётчика</label><input id="s_lpp" type="number" step="0.001">
   <label>TDS «отличная» до, ppm</label><input id="s_t1" type="number">
   <label>TDS «хорошая» до, ppm</label><input id="s_t2" type="number">
   <label>TDS «допустимая» до, ppm</label><input id="s_t3" type="number">
   <label>Допустимый рост TDS от нового картриджа, раз (0 — не учитывать)</label><input id="s_rise" type="number" step="0.1">
   <button class="btn" onclick="saveSet()">Сохранить</button>
+ </div>
+ <div class="card"><h2>Облако GitHub</h2>
+  <div class="mut" id="cloudInfo">Контроллер пишет статус в приватный репозиторий. Смотреть параметры можно со страницы dashboard — с любого телефона, без локальной сети устройства.</div>
+  <label>Репозиторий</label><input id="s_ghrepo" placeholder="владелец/AquaSense">
+  <label>GitHub token (fine-grained, Contents: Read and write)</label><input id="s_ght" autocomplete="off">
+  <button class="btn" onclick="saveSet()">Сохранить</button>
+  <button class="btn sec" onclick="cloudNow()">Отправить статус сейчас</button>
+  <a class="btn green" href="https://github.com/muharlyamovi/AquaSense/blob/main/docs/dashboard.html" target="_blank" rel="noopener">Открыть инструкцию к странице</a>
  </div>
  <div class="card"><h2>Уведомления и магазин</h2>
   <label>Имя устройства</label><input id="s_name">
@@ -174,7 +200,7 @@ canvas{width:100%;height:190px;display:block}
 
 <script>
 const $=id=>document.getElementById(id);
-const KEYS=['name','model','shop','tgt','tgc','lpp','cl','cm','ftype','t1','t2','t3','rise','ota','autoOta','otaHours'];
+const KEYS=['name','model','shop','tgt','tgc','lpp','cl','cm','ftype','t1','t2','t3','rise','ota','autoOta','otaHours','ghrepo'];
 const WC=[['нет данных','#8a97a6'],['Отличная','#1aa260'],['Хорошая','#4caf50'],['Допустимая','#f0a020'],['Плохая','#e0413a']];
 const FS=[['В норме','#1aa260'],['Скоро замена','#f0a020'],['Требуется замена','#e0413a']];
 let st=null;
@@ -195,7 +221,8 @@ function render(s){st=s;
  arc.style.strokeDashoffset=(326.7*(1-left/100)).toFixed(1);arc.style.stroke=fs[1];
  $('ringTxt').textContent=Math.round(left)+'%';
  $('fState').textContent=fs[0];$('fState').style.color=fs[1];
- $('fLeft').innerHTML='Осталось ≈ '+f(s.litersLeft)+' л'+(s.forecast>=0?' · ~'+s.forecast+' дн.':'')+'<br>Определяющий фактор: '+s.reason;
+ $('fLeft').innerHTML='Осталось ≈ '+f(s.litersLeft)+' л'+(s.forecast>=0?' · ~'+s.forecast+' дн.':'')+
+  '<br>Качество воды — по TDS. Ресурс картриджа — расход, срок и TDS';
  const wc=WC[s.wclass],b=$('wBadge');b.textContent=wc[0];b.style.background=wc[1];
  $('wNote').textContent=s.sensorFault?'датчик TDS не в воде':s.tempWarn?'вода тёплая (>30 °C)':s.wclass==0?'ждём первого замера':s.waterOk?'вода качественная':'вода требует внимания';
  $('vTds').textContent=s.tdsAge>=0?f(s.tds):'–';$('vTemp').textContent=s.tdsAge>=0?f(s.temp,1):'–';
@@ -211,6 +238,7 @@ function render(s){st=s;
  $('bBuy').href=base+'action=buy&'+q;$('bSub').href=base+'action=subscribe&'+q;
  $('shopNote').textContent=s.mode=='ap'?'Ссылки откроются, когда телефон будет подключён к интернету.':s.fstate?'Самое время заказать новый картридж.':'С подпиской новый картридж приедет как раз к моменту замены.';
  $('sysInfo').innerHTML='ID '+s.id+' · прошивка '+s.fw+'<br>Время '+(s.timeValid?'синхронизировано':'не синхронизировано')+(s.rssi?' · сигнал Wi-Fi '+s.rssi+' dBm':'');
+ if($('cloudInfo')&&!$('cloudInfo').dataset.busy)$('cloudInfo').textContent=s.cloudSet?(s.cloudAge>=0?'Последняя выгрузка в GitHub '+ago(s.cloudAge)+' назад':'Токен задан, статус ещё не отправляли'):'Задайте GitHub token — устройство будет писать data/latest.json в приватный репозиторий.';
  if($('otaInfo')&&!$('otaInfo').dataset.busy)$('otaInfo').textContent='Прошивка '+s.fw+(s.otaAge>=0?' · последняя проверка '+ago(s.otaAge)+' назад':s.autoOta?' · облако ещё не спрашивали':' · автообновление выключено');
  if(!$('wifiState').dataset.busy)$('wifiState').textContent=s.configured?'Сохранена сеть «'+s.ssid+'»':'Устройство ещё не подключено к домашней сети';
  let al=null;
@@ -226,16 +254,27 @@ async function refresh(){try{render(await api('/api/status'))}catch(e){$('hSub')
 
 function fieldVal(el){return el.type==='checkbox'?(el.checked?1:0):el.value}
 function otaUi(){const on=$('s_autoOta').checked;$('otaFreq').style.display=on?'':'none'}
-async function loadSet(){const d=await api('/api/settings');KEYS.forEach(k=>{const el=$('s_'+k);if(!el||d[k]===undefined)return;if(el.type==='checkbox')el.checked=!!+d[k];else el.value=d[k]});$('s_tgt').value='';$('s_tgt').placeholder=d.tgSet?'задан (оставьте пустым)':'не задан';otaUi()}
+async function loadSet(){const d=await api('/api/settings');KEYS.forEach(k=>{const el=$('s_'+k);if(!el||d[k]===undefined)return;if(el.type==='checkbox')el.checked=!!+d[k];else el.value=d[k]});$('s_tgt').value='';$('s_tgt').placeholder=d.tgSet?'задан (оставьте пустым)':'не задан';if($('s_ght')){$('s_ght').value='';$('s_ght').placeholder=d.ghSet?'задан (оставьте пустым)':'вставьте token'};otaUi()}
 async function saveSet(){const o={};KEYS.forEach(k=>o[k]=fieldVal($('s_'+k)));await api('/api/settings',o);toast('Сохранено');loadSet();refresh()}
 function preset(){const ro=$('s_ftype').value=='0';$('s_t1').value=ro?30:150;$('s_t2').value=ro?80:300;$('s_t3').value=ro?150:600;$('s_rise').value=ro?2:0}
 
 async function measure(){toast('Измеряю…');const r=await api('/api/measure',{});render(r);toast(r.sensorFault?'Датчик TDS не в воде':'Готово')}
 async function replaced(){if(!confirm('Начать отсчёт ресурса для нового картриджа?'))return;render(await api('/api/replace',{}));toast('Новый картридж учтён')}
 async function calibrate(){$('calRes').textContent='Измеряю…';const r=await api('/api/calibrate',{ref:$('calRef').value});$('calRes').textContent=r.ok?'Готово: K = '+r.k.toFixed(3)+' (t = '+r.temp.toFixed(1)+' °C)':'Ошибка: '+r.err}
+let flowTimer=null;
+function flowUi(on){$('flowRun').style.display=on?'':'none';$('bFlowStart').style.display=on?'none':''}
+let flowPrev={t:0,p:0};
+async function flowTick(){try{const r=await api('/api/flowcal');$('flowPulses').textContent=r.pulses;if($('flowPin'))$('flowPin').textContent=r.low?'замкнут':'разомкнут';if($('flowEdges'))$('flowEdges').textContent=r.edges||0;const now=Date.now();if(flowPrev.t){const dt=(now-flowPrev.t)/1000;if(dt>0.2&&$('flowHz'))$('flowHz').textContent=(((r.pulses-flowPrev.p)/dt)||0).toFixed(1)}flowPrev={t:now,p:r.pulses};if(!r.on){clearInterval(flowTimer);flowTimer=null;flowUi(false)}}catch(e){}}
+async function flowStart(){const r=await api('/api/flowcal',{action:'start'});if(!r.ok)return toast(r.err);flowPrev={t:0,p:0};$('flowCalRes').textContent='Откройте кран — импульсы должны пойти сразу.';flowUi(true);clearInterval(flowTimer);flowTimer=setInterval(flowTick,300);flowTick()}
+async function flowStop(){const liters=$('flowLiters').value;clearInterval(flowTimer);flowTimer=null;const r=await api('/api/flowcal',{action:'stop',liters});flowUi(false);
+ if(!r.ok){$('flowCalRes').textContent='Ошибка: '+r.err;return}
+ $('s_lpp').value=r.lpp.toFixed(3);$('flowCalRes').textContent='Готово: '+r.pulses+' имп. на '+r.liters+' л → '+r.lpp.toFixed(3)+' л/импульс. Сохранено.';toast('Счётчик откалиброван')}
+async function flowCancel(){clearInterval(flowTimer);flowTimer=null;await api('/api/flowcal',{action:'cancel'});flowUi(false);$('flowCalRes').textContent='Калибровка отменена'}
 async function testTg(){const r=await api('/api/testtg',{});toast(r.ok?'Сообщение отправлено':'Ошибка: '+r.err)}
 async function sleepNow(){await api('/api/sleep',{});toast('Устройство уснуло')}
 async function factory(){if(!confirm('Стереть все настройки и счётчики?'))return;await api('/api/reset',{});toast('Сброшено, устройство перезагружается')}
+async function cloudNow(){const e=$('cloudInfo');e.dataset.busy=1;e.textContent='Отправляю в GitHub…';
+ try{const r=await api('/api/cloud',{});e.textContent=r.ok?'Статус записан в data/latest.json':'Ошибка: '+r.err}catch(x){e.textContent='Нет связи с устройством'} delete e.dataset.busy}
 async function otaCheck(){const e=$('otaInfo');e.dataset.busy=1;e.textContent='Запрашиваю облако…';$('bOta').style.display='none';
  try{const r=await api('/api/ota');if(!r.ok){e.textContent='Ошибка: '+r.err;delete e.dataset.busy;return}
  e.innerHTML=r.newer?'Доступна <b>'+esc(r.latest)+'</b> (сейчас '+esc(r.current)+')'+(r.notes?'<br>'+esc(r.notes):''):'Уже стоит последняя версия '+esc(r.current);
@@ -260,19 +299,32 @@ async function saveWifi(){const ssid=$('w_ssid').value.trim(),ws=$('wifiState');
 
 async function goHome(url){for(let i=0;i<120;i++){await new Promise(z=>setTimeout(z,2000));const c=new AbortController(),t=setTimeout(()=>c.abort(),1500);
  try{await fetch(url+'api/status?t='+Date.now(),{mode:'no-cors',cache:'no-store',signal:c.signal});clearTimeout(t);location.href=url;return}catch(e){clearTimeout(t)}}}
-function chart(id,vals,labels,color,line){const c=$(id),r=devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;c.width=W*r;c.height=H*r;
- const x=c.getContext('2d');x.scale(r,r);const mut=getComputedStyle(document.documentElement).getPropertyValue('--mut');
- const max=Math.max(1,...vals)*1.15,pl=34,pb=18,n=Math.max(1,vals.length),w=(W-pl)/n;
- x.font='11px sans-serif';x.fillStyle=mut;
- for(let i=0;i<=4;i++){const y=(H-pb)*(1-i/4);x.globalAlpha=.8;x.fillText(Math.round(max*i/4),0,y+4);x.globalAlpha=.25;x.fillRect(pl,y,W-pl,1)}
- x.globalAlpha=1;const step=Math.ceil(n/6);labels.forEach((l,i)=>{if(i%step==0||i==n-1)x.fillText(l,pl+w*i,H-3)});
- x.fillStyle=color;x.strokeStyle=color;x.lineWidth=2;
- if(line){x.beginPath();let first=true;vals.forEach((v,i)=>{if(!v)return;const X=pl+w*i+w/2,Y=(H-pb)*(1-v/max);first?x.moveTo(X,Y):x.lineTo(X,Y);first=false;x.fillRect(X-2,Y-2,4,4)});x.stroke()}
- else vals.forEach((v,i)=>{const h=(H-pb)*v/max;x.fillRect(pl+w*i+w*.15,H-pb-h,w*.7,h)})}
+function chart(id,vals,labels,color,bands){
+ const c=$(id),r=devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;c.width=W*r;c.height=H*r;
+ const x=c.getContext('2d');x.scale(r,r);
+ const css=getComputedStyle(document.documentElement);
+ const mut=css.getPropertyValue('--mut'),line=css.getPropertyValue('--line');
+ const marks=(bands||[]).map(b=>+b.y).filter(v=>v>0);
+ const max=Math.max(1,...vals,...marks)*1.15,pl=36,pr=54,pb=22,n=Math.max(1,vals.length),w=(W-pl-pr)/n;
+ const Y=v=>(H-pb)*(1-v/max);
+ x.font='11px sans-serif';
+ for(let i=0;i<=4;i++){const y=Y(max*i/4);x.fillStyle=mut;x.globalAlpha=.85;x.fillText(Math.round(max*i/4),0,y+4);x.globalAlpha=.28;x.fillStyle=line;x.fillRect(pl,y,W-pl-pr,1)}
+ x.globalAlpha=1;
+ (bands||[]).forEach(b=>{if(!(+b.y>0)||b.y>max)return;const y=Y(b.y);x.strokeStyle=b.color;x.setLineDash([5,4]);x.lineWidth=1.2;x.beginPath();x.moveTo(pl,y);x.lineTo(W-pr,y);x.stroke();x.setLineDash([]);x.fillStyle=b.color;x.fillText(b.label,W-pr+4,y+4)});
+ x.fillStyle=mut;const step=Math.ceil(n/6);labels.forEach((l,i)=>{if(i%step==0||i==n-1)x.fillText(l,pl+w*i,H-4)});
+ x.strokeStyle=color;x.fillStyle=color;x.lineWidth=2;x.lineJoin='round';x.lineCap='round';
+ x.beginPath();let started=false;
+ vals.forEach((v,i)=>{if(v==null||v==='')return;const X=pl+w*i+w/2,y=Y(+v||0);started?x.lineTo(X,y):x.moveTo(X,y);started=true});
+ x.stroke();
+ vals.forEach((v,i)=>{if(v==null||v==='')return;const X=pl+w*i+w/2,y=Y(+v||0);x.beginPath();x.arc(X,y,3,0,Math.PI*2);x.fill()});
+}
 async function loadHist(){const h=await api('/api/history');
- const L=h.days.map(d=>d.l),T=h.days.map(d=>d.t),lab=h.days.map(d=>d.e>1700000000?new Date(d.e*1000).toLocaleDateString(undefined,{day:'numeric',month:'numeric'}):'');
- L.push(h.today);T.push(h.todayTds);lab.push('сейчас');
- chart('cL',L,lab,'#0b6bcb',false);chart('cT',T,lab,'#1aa260',true)}
+ const L=h.days.map(d=>d.l),T=h.days.map(d=>d.t||null),lab=h.days.map(d=>d.e>1700000000?new Date(d.e*1000).toLocaleDateString(undefined,{day:'numeric',month:'numeric'}):'');
+ L.push(h.today);T.push(h.todayTds||null);lab.push('сейчас');
+ const t1=h.t1||(st&&st.t1)||30,t2=h.t2||(st&&st.t2)||80,t3=h.t3||(st&&st.t3)||150;
+ chart('cL',L,lab,'#0b6bcb');
+ chart('cT',T,lab,'#0b6bcb',[{y:t1,color:'#1aa260',label:'отл. '+t1},{y:t2,color:'#f0a020',label:'допуст. '+t2},{y:t3,color:'#e0413a',label:'плохо '+t3}]);
+}
 
 (async()=>{try{await api('/api/time',{epoch:Math.floor(Date.now()/1000)})}catch(e){}
  await refresh();loadSet();if(st&&!st.configured)show('set');setInterval(refresh,3000)})();

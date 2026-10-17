@@ -6,7 +6,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include <HTTPUpdate.h>
+#include <Update.h>
 #include <ArduinoJson.h>
 
 static int verNum(const char *s) {
@@ -33,6 +33,8 @@ bool otaFetch(OtaInfo &info) {
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   http.setTimeout(15000);
   if (!http.begin(client, S.otaUrl)) { setErr(info, "неверный URL"); return false; }
+  http.addHeader("User-Agent", "AquaSense");
+  if (S.ghToken[0]) http.addHeader("Authorization", String("Bearer ") + S.ghToken);
   int code = http.GET();
   if (code != 200) {
     snprintf(info.err, sizeof(info.err), "манифест HTTP %d", code);
@@ -76,18 +78,36 @@ bool otaApply(const OtaInfo *given) {
 
   WiFiClientSecure client;
   client.setInsecure();
-  httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  httpUpdate.rebootOnUpdate(true);
-  httpUpdate.onProgress([](int cur, int total) {
-    if (total > 0 && (cur % 50000 < 4096)) LOG("ota: %d / %d\n", cur, total);
-    ledSet((cur / 32768) & 1);
-  });
-
-  t_httpUpdate_return r = httpUpdate.update(client, info.url);
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setTimeout(60000);
+  if (!http.begin(client, info.url)) { ledSet(false); setCpuFrequencyMhz(80); return false; }
+  http.addHeader("User-Agent", "AquaSense");
+  if (S.ghToken[0]) http.addHeader("Authorization", String("Bearer ") + S.ghToken);
+  int code = http.GET();
+  int len = http.getSize();
+  if (code != 200 || len < 10000) {
+    LOG("ota GET %d size %d\n", code, len);
+    http.end();
+    ledSet(false);
+    setCpuFrequencyMhz(80);
+    return false;
+  }
+  if (!Update.begin(len)) {
+    LOG("ota Update.begin fail\n");
+    http.end();
+    ledSet(false);
+    setCpuFrequencyMhz(80);
+    return false;
+  }
+  WiFiClient *stream = http.getStreamPtr();
+  size_t written = Update.writeStream(*stream);
+  bool ok = written == (size_t)len && Update.end(true);
+  http.end();
+  LOG("ota write %u / %d %s\n", (unsigned)written, len, ok ? "ok" : "fail");
+  if (ok) ESP.restart();
   ledSet(false);
   setCpuFrequencyMhz(80);
-  LOG("ota failed: %s\n", httpUpdate.getLastErrorString().c_str());
-  (void)r;
   return false;
 }
 

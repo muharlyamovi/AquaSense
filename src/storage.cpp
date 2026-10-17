@@ -38,6 +38,7 @@ static void settingsDefaults() {
   S.autoOta = 1;
   S.otaHours = 24;
   strlcpy(S.otaUrl, DEFAULT_OTA_URL, sizeof(S.otaUrl));
+  strlcpy(S.ghRepo, DEFAULT_GH_REPO, sizeof(S.ghRepo));
   settingsApplyPreset(FILTER_RO);
 }
 
@@ -59,6 +60,8 @@ void storageLoadSettings() {
     p.end();
   }
   if (!ok || S.version != SETTINGS_VERSION) settingsDefaults();
+  if (!S.otaUrl[0]) strlcpy(S.otaUrl, DEFAULT_OTA_URL, sizeof(S.otaUrl));
+  if (!S.ghRepo[0]) strlcpy(S.ghRepo, DEFAULT_GH_REPO, sizeof(S.ghRepo));
 }
 
 void storageSaveSettings() {

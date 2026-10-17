@@ -26,6 +26,8 @@ struct Settings {
   char otaUrl[160];
   uint8_t autoOta;                // 1 — проверять и ставить самому
   uint16_t otaHours;              // интервал проверки, часов (6…168)
+  char ghToken[128];              // fine-grained PAT: Contents Read/Write только этого репо
+  char ghRepo[48];
 };
 
 // Живёт в RTC-памяти (переживает deep sleep) и периодически копируется в NVS (переживает замену батареи).
@@ -54,6 +56,7 @@ struct Counters {
   uint32_t savedPulses;
   uint32_t lastOtaCheckEpoch;
   uint32_t lastOtaNotifyVer;
+  uint32_t lastCloudEpoch;
 };
 
 struct DayRecord {

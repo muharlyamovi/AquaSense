@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
-  "url": "https://example.com/aquasense/firmware.bin",
-  "notes": "Облачное обновление, исправлено выключение питания датчиков"
+    "url":  "https://raw.githubusercontent.com/muharlyamovi/AquaSense/main/ota/firmware.bin",
+    "version":  "1.1.2",
+    "notes":  "Счётчик воды: не терять частые импульсы, калибровка с имп/с"
 }
