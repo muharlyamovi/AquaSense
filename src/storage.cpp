@@ -128,6 +128,37 @@ void storageAddDay(const DayRecord &r) {
   storageSaveHistory(h);
 }
 
+void storageLoadContacts(ContactLog &l) {
+  memset(&l, 0, sizeof(l));
+  Preferences p;
+  if (p.begin(NS, true)) {
+    if (p.getBytesLength("clog") == sizeof(l)) p.getBytes("clog", &l, sizeof(l));
+    p.end();
+  }
+  if (l.head >= CONTACT_LOG_N || l.count > CONTACT_LOG_N) memset(&l, 0, sizeof(l));
+}
+
+void storageAddContact(uint8_t why) {
+  if (!why) return;
+  uint32_t now = nowEpoch();
+  ContactLog l;
+  storageLoadContacts(l);
+  if (l.count) {
+    const ContactEvent &last = l.e[(l.head + CONTACT_LOG_N - 1) % CONTACT_LOG_N];
+    if (last.why == why && now >= last.epoch && now - last.epoch < 120) return;
+  }
+  ContactEvent ev{};
+  ev.epoch = now;
+  ev.why = why;
+  l.e[l.head] = ev;
+  l.head = (l.head + 1) % CONTACT_LOG_N;
+  if (l.count < CONTACT_LOG_N) l.count++;
+  Preferences p;
+  p.begin(NS, false);
+  p.putBytes("clog", &l, sizeof(l));
+  p.end();
+}
+
 void storageFactoryReset() {
   Preferences p;
   p.begin(NS, false);
@@ -149,6 +180,13 @@ void shiftStoredEpochs(int64_t delta) {
   storageLoadHistory(h);
   for (auto &d : h.d) sh(d.epoch);
   storageSaveHistory(h);
+  ContactLog l;
+  storageLoadContacts(l);
+  for (auto &e : l.e) sh(e.epoch);
+  Preferences p;
+  p.begin(NS, false);
+  p.putBytes("clog", &l, sizeof(l));
+  p.end();
   storageSaveCounters();
 }
 

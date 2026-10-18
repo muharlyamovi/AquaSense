@@ -71,6 +71,15 @@ static String statusJson() {
     o["t"] = r.tds;
     o["b"] = r.batt;
   }
+  ContactLog cl;
+  storageLoadContacts(cl);
+  JsonArray log = d["log"].to<JsonArray>();
+  for (uint8_t i = 0; i < cl.count; i++) {
+    const ContactEvent &e = cl.e[(cl.head + CONTACT_LOG_N - 1 - i) % CONTACT_LOG_N];
+    JsonObject o = log.add<JsonObject>();
+    o["e"] = e.epoch;
+    o["w"] = e.why;
+  }
   String s;
   serializeJson(d, s);
   return s;
@@ -126,6 +135,7 @@ bool cloudPush() {
   if (ok) {
     C.lastCloudEpoch = nowEpoch();
     storageSaveCounters();
+    storageAddContact(CONTACT_CLOUD);
   }
   return ok;
 }

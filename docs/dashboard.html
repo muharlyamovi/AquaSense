@@ -13,6 +13,8 @@
 body{margin:0;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt);padding-bottom:80px}
 header{background:linear-gradient(135deg,#0b6bcb,#22a6e0);color:#fff;padding:18px 16px 48px}
 header h1{margin:0;font-size:21px}header small{opacity:.85}
+.log i{display:block;padding:9px 0;border-bottom:1px solid var(--line);font-style:normal}
+.log i:last-child{border-bottom:0}.log b{display:block}.log span{color:var(--mut);font-size:12px}
 main{max-width:560px;margin:-36px auto 0;padding:0 12px}
 .card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
 .card h2{margin:0 0 10px;font-size:16px}
@@ -80,6 +82,10 @@ canvas{width:100%;height:190px;display:block}
 </section>
 
 <section id="t-hist" class="tab">
+ <div class="card"><h2>Выходы на связь</h2>
+  <div class="mut">Когда устройство поднимало кабинет или писало статус в GitHub.</div>
+  <div class="log" id="logList"><div class="mut" style="padding-top:8px">пока пусто</div></div>
+ </div>
  <div class="card"><h2>Расход воды, л/сутки</h2><canvas id="cL"></canvas></div>
  <div class="card"><h2>Средний TDS, ppm</h2><canvas id="cT"></canvas>
   <div class="mut" style="margin-top:8px">линия — замеры · зелёная — отличная · жёлтая — допустимая · красная — плохая</div></div>
@@ -133,6 +139,11 @@ canvas{width:100%;height:190px;display:block}
 const $=id=>document.getElementById(id);
 const WC=[['нет данных','#8a97a6'],['Отличная','#1aa260'],['Хорошая','#4caf50'],['Допустимая','#f0a020'],['Плохая','#e0413a']];
 const FS=[['В норме','#1aa260'],['Скоро замена','#f0a020'],['Требуется замена','#e0413a']];
+const WHY={1:'Локальный кабинет',2:'Облако GitHub',3:'Wi-Fi'};
+function drawLog(list){const box=$('logList');if(!box)return;const rows=list||[];
+ if(!rows.length){box.innerHTML='<div class="mut" style="padding-top:8px">пока пусто</div>';return}
+ box.innerHTML=rows.map(x=>{const when=x.e>1700000000?new Date(x.e*1000).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'нет точного времени';
+ return '<i><b>'+esc(WHY[x.w]||'Связь')+'</b><span>'+esc(when)+'</span></i>'}).join('')}
 let st=null,tab='home';
 function toast(m){const t=$('toast');t.textContent=m;t.style.opacity=1;clearTimeout(t._h);t._h=setTimeout(()=>t.style.opacity=0,2500)}
 function f(v,d){return v==null||isNaN(v)?'–':(+v).toFixed(d||0)}
@@ -179,6 +190,7 @@ function render(s){st=s;
  else if(s.fstate==1)al=['Скоро потребуется замена картриджа','var(--warn)'];
  else if(s.battMv&&s.battMv<3450)al=['Низкий заряд батареи','var(--warn)'];
  const e=$('alert');e.style.display=al?'block':'none';if(al){e.textContent=al[0];e.style.background=al[1]}
+ drawLog(s.log);
  if(tab=='hist')drawHist(s);
 }
 

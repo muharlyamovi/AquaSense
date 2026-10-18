@@ -45,11 +45,22 @@ static void sendOk(bool ok = true, const char *err = nullptr) {
   sendJson(d);
 }
 
-static void route(const char *path, HTTPMethod method, void (*fn)()) {
-  server.on(path, method, [fn]() {
-    lastActivity = millis();
+static void route(const char *path, HTTPMethod method, void (*fn)(), bool touch = true) {
+  server.on(path, method, [fn, touch]() {
+    if (touch) lastActivity = millis();
     fn();
   });
+}
+
+static void fillContacts(JsonArray arr) {
+  ContactLog l;
+  storageLoadContacts(l);
+  for (uint8_t i = 0; i < l.count; i++) {
+    const ContactEvent &e = l.e[(l.head + CONTACT_LOG_N - 1 - i) % CONTACT_LOG_N];
+    JsonObject o = arr.add<JsonObject>();
+    o["e"] = e.epoch;
+    o["w"] = e.why;
+  }
 }
 
 // ---------------- Статус ----------------
@@ -74,7 +85,10 @@ static void fillStatus(JsonDocument &d) {
   d["rssi"] = (!apMode && WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
   d["timeValid"] = timeValid();
   d["now"] = now;
-  d["svcLeft"] = (int32_t)(timeoutMs - (millis() - lastActivity)) / 1000;
+  int32_t left = ((int32_t)timeoutMs - (int32_t)(millis() - lastActivity)) / 1000;
+  d["svcLeft"] = left > 0 ? left : 0;
+  d["btn"] = digitalRead(PIN_BUTTON) == LOW;
+  fillContacts(d["log"].to<JsonArray>());
 
   d["tds"] = r1(C.lastTds);
   d["temp"] = r1(C.lastTemp);
@@ -290,6 +304,7 @@ static void handleHistory() {
   d["t1"] = S.tdsT1;
   d["t2"] = S.tdsT2;
   d["t3"] = S.tdsT3;
+  fillContacts(d["log"].to<JsonArray>());
   sendJson(d);
 }
 
@@ -444,19 +459,19 @@ void webStart(bool forceAp) {
 
   route("/", HTTP_GET, handleRoot);
   route("/setup", HTTP_GET, handleSetup);
-  route("/api/status", HTTP_GET, handleStatus);
+  route("/api/status", HTTP_GET, handleStatus, false);
   route("/api/settings", HTTP_GET, handleSettingsGet);
   route("/api/settings", HTTP_POST, handleSettingsPost);
   route("/api/time", HTTP_POST, handleTime);
   route("/api/measure", HTTP_POST, handleMeasure);
   route("/api/replace", HTTP_POST, handleReplace);
   route("/api/calibrate", HTTP_POST, handleCalibrate);
-  route("/api/flowcal", HTTP_GET, handleFlowCalGet);
+  route("/api/flowcal", HTTP_GET, handleFlowCalGet, false);
   route("/api/flowcal", HTTP_POST, handleFlowCalPost);
-  route("/api/history", HTTP_GET, handleHistory);
+  route("/api/history", HTTP_GET, handleHistory, false);
   route("/api/scan", HTTP_GET, handleScan);
   route("/api/wifi", HTTP_POST, handleWifi);
-  route("/api/wifistatus", HTTP_GET, handleWifiStatus);
+  route("/api/wifistatus", HTTP_GET, handleWifiStatus, false);
   route("/api/testtg", HTTP_POST, handleTestTg);
   route("/api/sleep", HTTP_POST, handleSleep);
   route("/api/reset", HTTP_POST, handleReset);
@@ -525,3 +540,4 @@ void webStop() {
 bool webRunning() { return running; }
 bool webIsAp() { return apMode; }
 bool webFlowCalActive() { return flowCalOn; }
+void webTouch() { lastActivity = millis(); }

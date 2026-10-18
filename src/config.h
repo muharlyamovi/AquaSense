@@ -1,16 +1,17 @@
 #pragma once
 #include <Arduino.h>
 
-#define FW_VERSION "1.1.2"
+#define FW_VERSION "1.1.7"
 
 // ===================== Пины ESP32-C3 =====================
 // Из deep sleep будят только GPIO0..GPIO5, а АЦП1 есть только на GPIO0..GPIO4,
 // поэтому эти шесть ножек целиком отданы под аналоговые датчики и источники пробуждения.
 #define PIN_TDS_ADC     0   // ADC1_CH0 <- выход "A" модуля TDS Meter V1.0
-#define PIN_NTC_ADC     1   // ADC1_CH1 <- средняя точка делителя NTC / 10 кОм
-#define PIN_SENS_PWR    2   // затвор P-MOSFET питания датчиков (LOW = включено); strapping-пин, нужна подтяжка 100k к 3V3
-#define PIN_FLOW        3   // геркон счётчика через RC-цепочку (пробуждение, активный LOW)
-#define PIN_LEAK        4   // датчик протечки (пробуждение, активный LOW)
+#define PIN_NTC_ADC     1   // ADC1_CH1 <- средняя точка делителя: 10 кОм к 3V3 сверху, NTC 50 кОм к GND
+#define PIN_SENS_PWR    2   // затвор P-MOSFET питания датчиков (LOW = включено); пока MOSFET нет — не использовать
+#define PIN_FLOW        3   // расходомер (Холл / RC), только счёт импульсов
+#define PIN_WAKE_REED   4   // геркон-будильник, активный LOW; из сна, не в объём
+#define PIN_LEAK        4   // пин занят герконом, протечка выключена
 #define PIN_BUTTON      5   // кнопка сервис/сброс (пробуждение, активный LOW)
 #define PIN_I2C_SDA     6   // MAX17043 SDA
 #define PIN_I2C_SCL     7   // MAX17043 SCL
@@ -19,8 +20,10 @@
 #define PIN_BUZZER      10  // опционально: активный зуммер через NPN-транзистор
 
 // 1 — датчики питаются через P-MOSFET (рекомендуется), 0 — прямо от ножки (только для отладки на столе)
-#define SENS_PWR_VIA_PMOS   1
-#define LEAK_SENSOR_ENABLED 1
+#define SENS_ALWAYS_ON      1   // 1 — датчики постоянно под 3.3 В (стенд без MOSFET)
+#define SENS_PWR_VIA_PMOS   0   // 1 — GPIO2 управляет P-MOSFET, когда ключ появится
+#define LEAK_SENSOR_ENABLED 0   // GPIO4 занят герконом пробуждения
+#define FLOW_WAKE_ENABLED   SENS_ALWAYS_ON  // пока Холл всегда под питанием — им тоже можно будить
 #define BUZZER_ENABLED      0
 
 // ===================== Тайминги =====================
@@ -46,9 +49,10 @@
 
 // ===================== Датчики =====================
 #define VCC_MV            3300.0f
-#define NTC_R_FIXED       10000.0f  // резистор делителя (NTC сверху, 10k к GND)
-#define NTC_R25           10000.0f
+#define NTC_R_FIXED       10000.0f  // верхний резистор к 3V3
+#define NTC_R25           50000.0f  // NTC 50 кОм при 25 °C, снизу к GND
 #define NTC_BETA          3950.0f
+#define NTC_BOTTOM        1         // 1 — NTC к GND, 0 — NTC к питанию
 #define SENSOR_WARMUP_MS  800
 #define ADC_SAMPLES       21
 #define TDS_DRY_MV        3         // ниже — датчик TDS не в воде
@@ -69,6 +73,7 @@
 #define CLOUD_INTERVAL_S  (6UL * 3600)   // выгрузка статуса в GitHub, не чаще
 
 #define HISTORY_DAYS      30
+#define CONTACT_LOG_N     20
 #define TIME_VALID_MIN    1700000000UL
 
 #if AQUA_DEBUG

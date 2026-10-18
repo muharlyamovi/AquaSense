@@ -7,3 +7,4 @@ void webStop();
 bool webRunning();
 bool webIsAp();
 bool webFlowCalActive();
+void webTouch();   // сбросить таймер сна (кнопка GPIO5, действие в кабинете)

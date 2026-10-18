@@ -72,6 +72,19 @@ struct History {
   DayRecord d[HISTORY_DAYS];
 };
 
+enum ContactWhy : uint8_t { CONTACT_WEB = 1, CONTACT_CLOUD = 2, CONTACT_WIFI = 3 };
+
+struct ContactEvent {
+  uint32_t epoch;
+  uint8_t why;
+  uint8_t pad[3];
+};
+
+struct ContactLog {
+  uint8_t head, count;
+  ContactEvent e[CONTACT_LOG_N];
+};
+
 extern Settings S;
 extern Counters C;
 
@@ -82,6 +95,8 @@ void storageLoadCounters();
 void storageSaveCounters();
 void storageLoadHistory(History &h);
 void storageAddDay(const DayRecord &r);
+void storageLoadContacts(ContactLog &l);
+void storageAddContact(uint8_t why);
 void storageFactoryReset();
 
 uint32_t nowEpoch();

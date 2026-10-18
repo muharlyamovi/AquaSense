@@ -25,8 +25,10 @@ void hwInitPins() {
 
 void hwPrepareSleep() {
   sensorsPower(false);
+#if !SENS_ALWAYS_ON
   // без внешней подтяжки затвор иначе всплывёт во сне и MOSFET снова откроется
   gpio_hold_en((gpio_num_t)PIN_SENS_PWR);
+#endif
   ledSet(false);
   pinMode(PIN_LED, INPUT);
   if (wireStarted) gaugeSleep();
@@ -38,7 +40,10 @@ void hwPrepareSleep() {
 
 void sensorsPower(bool on) {
   gpio_hold_dis((gpio_num_t)PIN_SENS_PWR);
-#if SENS_PWR_VIA_PMOS
+#if SENS_ALWAYS_ON
+  (void)on;
+  pinMode(PIN_SENS_PWR, INPUT);   // MOSFET нет — пин не дёргаем
+#elif SENS_PWR_VIA_PMOS
   pinMode(PIN_SENS_PWR, OUTPUT);
   digitalWrite(PIN_SENS_PWR, on ? LOW : HIGH);
 #else
@@ -59,9 +64,14 @@ void hwPowerCheck(PowerCheck &p) {
   sensorsPower(false);
   delay(80);
   int tdsAfter = analogReadMilliVolts(PIN_TDS_ADC);
+#if SENS_ALWAYS_ON
+  p.switched = false;
+  LOG("pwr: always-on tds=%dmV ntc=%dmV (MOSFET skipped)\n", p.tdsOn, p.ntcOn);
+#else
   p.switched = tdsAfter < 20 && p.ntcOff < 20;
   LOG("pwr: off tds=%dmV ntc=%dmV | on tds=%dmV ntc=%dmV | after=%dmV %s\n",
       p.tdsOff, p.ntcOff, p.tdsOn, p.ntcOn, tdsAfter, p.switched ? "SWITCH OK" : "TDS STAYS ON");
+#endif
 }
 
 // ---------------- TDS + NTC ----------------
@@ -86,7 +96,11 @@ bool waterMeasure(WaterReading &r) {
   int tdsMv[ADC_SAMPLES], ntcMv[ADC_SAMPLES];
 
   sensorsPower(true);
+#if SENS_ALWAYS_ON
+  delay(50);
+#else
   delay(SENSOR_WARMUP_MS);
+#endif
   for (int i = 0; i < ADC_SAMPLES; i++) {
     tdsMv[i] = analogReadMilliVolts(PIN_TDS_ADC);
     ntcMv[i] = analogReadMilliVolts(PIN_NTC_ADC);
@@ -97,11 +111,15 @@ bool waterMeasure(WaterReading &r) {
   r.tdsMv = median(tdsMv, ADC_SAMPLES);
   r.ntcMv = median(ntcMv, ADC_SAMPLES);
 
-  // NTC сверху (к питанию), 10 кОм снизу (к GND): R_ntc = R_fixed * (Vcc - V) / V
+  // 10 кОм сверху к 3V3, NTC снизу к GND: R_ntc = R_fixed * V / (Vcc - V)
   r.tempC = 25.0f;
   r.ntcOk = r.ntcMv > 50 && r.ntcMv < VCC_MV - 50;
   if (r.ntcOk) {
+#if NTC_BOTTOM
+    float rntc = NTC_R_FIXED * r.ntcMv / (VCC_MV - r.ntcMv);
+#else
     float rntc = NTC_R_FIXED * (VCC_MV - r.ntcMv) / r.ntcMv;
+#endif
     float t = 1.0f / (1.0f / 298.15f + logf(rntc / NTC_R25) / NTC_BETA) - 273.15f;
     if (t > -10 && t < 90) r.tempC = t;
     else r.ntcOk = false;

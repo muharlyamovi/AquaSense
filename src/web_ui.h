@@ -11,8 +11,12 @@ const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
 @media(prefers-color-scheme:dark){:root{--bg:#0d1620;--card:#16222f;--txt:#e6eef6;--mut:#8ea0b4;--line:#2a3a4c}}
 *{box-sizing:border-box}
 body{margin:0;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt);padding-bottom:80px}
-header{background:linear-gradient(135deg,#0b6bcb,#22a6e0);color:#fff;padding:18px 16px 48px}
+header{background:linear-gradient(135deg,#0b6bcb,#22a6e0);color:#fff;padding:14px 16px 48px}
 header h1{margin:0;font-size:21px}header small{opacity:.85}
+.sleep{font-variant-numeric:tabular-nums;font-size:14px;font-weight:700;margin-bottom:8px;letter-spacing:.02em}
+.sleep.warn{color:#ffe08a}.sleep.bad{color:#ffc4c0}
+.log i{display:block;padding:9px 0;border-bottom:1px solid var(--line);font-style:normal}
+.log i:last-child{border-bottom:0}.log b{display:block}.log span{color:var(--mut);font-size:12px}
 main{max-width:560px;margin:-36px auto 0;padding:0 12px}
 .card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
 .card h2{margin:0 0 10px;font-size:16px}
@@ -46,7 +50,10 @@ canvas{width:100%;height:190px;display:block}
 .sw input:checked+i:before{transform:translateX(20px)}
 @media(prefers-color-scheme:dark){.sw i{background:#2a3a4c}}
 </style></head><body>
-<header><h1 id="hName">AquaSense</h1><small id="hSub">подключение…</small></header>
+<header>
+ <div class="sleep" id="hSleep">сон через —:—</div>
+ <h1 id="hName">AquaSense</h1><small id="hSub">подключение…</small>
+</header>
 <main>
 <div id="alert" class="alert"></div>
 
@@ -85,6 +92,10 @@ canvas{width:100%;height:190px;display:block}
 </section>
 
 <section id="t-hist" class="tab">
+ <div class="card"><h2>Выходы на связь</h2>
+  <div class="mut">Когда устройство поднимало кабинет или писало в облако.</div>
+  <div class="log" id="logList"><div class="mut" style="padding-top:8px">пока пусто</div></div>
+ </div>
  <div class="card"><h2>Расход воды, л/сутки</h2><canvas id="cL"></canvas></div>
  <div class="card"><h2>Средний TDS, ppm</h2><canvas id="cT"></canvas>
   <div class="mut" id="tdsLeg" style="margin-top:8px">линия — замеры · зелёная — отличная · жёлтая — допустимая · красная — плохая</div></div>
@@ -214,9 +225,25 @@ function bar(id,v){const e=$(id);e.style.width=Math.min(100,v)+'%';e.style.backg
 function show(t){document.querySelectorAll('.tab').forEach(e=>e.classList.toggle('on',e.id=='t-'+t));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t==t));if(t=='hist')loadHist()}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.t));
 
+const WHY={1:'Локальный кабинет',2:'Облако GitHub',3:'Wi-Fi'};
+let sleepUntil=0;
+function fmtSleep(s){s=Math.max(0,s|0);return 'сон через '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
+function tickSleep(){const e=$('hSleep');if(!e)return;const left=sleepUntil?Math.max(0,Math.ceil((sleepUntil-Date.now())/1000)):0;
+ e.textContent=left?fmtSleep(left):'сейчас уснёт';e.className='sleep'+(left<=30?' bad':left<=60?' warn':'')}
+function drawLog(list,id){const box=$(id||'logList');if(!box)return;const rows=list||[];
+ if(!rows.length){box.innerHTML='<div class="mut" style="padding-top:8px">пока пусто</div>';return}
+ box.innerHTML=rows.map(x=>{const when=x.e>1700000000?new Date(x.e*1000).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'время ещё не синхронизировано';
+ return '<i><b>'+esc(WHY[x.w]||'Связь')+'</b><span>'+esc(when)+'</span></i>'}).join('')}
+
+let prevLeft=-1;
 function render(s){st=s;
+ const left=Math.max(0,+s.svcLeft||0);
+ if(prevLeft>=0&&left>prevLeft+3)toast('Таймер сна сброшен');
+ prevLeft=left;
+ sleepUntil=Date.now()+left*1000;tickSleep();
  $('hName').textContent=s.name;
- $('hSub').textContent=(s.mode=='ap'?'Точка доступа':'Wi-Fi «'+s.ssid+'»')+' · '+s.ip+' · уснёт через '+Math.max(0,Math.ceil(s.svcLeft/60))+' мин';
+ $('hSub').textContent=(s.mode=='ap'?'Точка доступа':'Wi-Fi «'+s.ssid+'»')+' · '+s.ip;
+ if(s.log)drawLog(s.log);
  const fs=FS[s.fstate],left=Math.max(0,100-s.wear),arc=$('ringArc');
  arc.style.strokeDashoffset=(326.7*(1-left/100)).toFixed(1);arc.style.stroke=fs[1];
  $('ringTxt').textContent=Math.round(left)+'%';
@@ -319,6 +346,7 @@ function chart(id,vals,labels,color,bands){
  vals.forEach((v,i)=>{if(v==null||v==='')return;const X=pl+w*i+w/2,y=Y(+v||0);x.beginPath();x.arc(X,y,3,0,Math.PI*2);x.fill()});
 }
 async function loadHist(){const h=await api('/api/history');
+ if(h.log)drawLog(h.log);
  const L=h.days.map(d=>d.l),T=h.days.map(d=>d.t||null),lab=h.days.map(d=>d.e>1700000000?new Date(d.e*1000).toLocaleDateString(undefined,{day:'numeric',month:'numeric'}):'');
  L.push(h.today);T.push(h.todayTds||null);lab.push('сейчас');
  const t1=h.t1||(st&&st.t1)||30,t2=h.t2||(st&&st.t2)||80,t3=h.t3||(st&&st.t3)||150;
@@ -327,7 +355,7 @@ async function loadHist(){const h=await api('/api/history');
 }
 
 (async()=>{try{await api('/api/time',{epoch:Math.floor(Date.now()/1000)})}catch(e){}
- await refresh();loadSet();if(st&&!st.configured)show('set');setInterval(refresh,3000)})();
+ await refresh();loadSet();if(st&&!st.configured)show('set');setInterval(refresh,1000);setInterval(tickSleep,250)})();
 </script></body></html>)HTML";
 
 const char SETUP_HTML[] PROGMEM = R"HTML(<!doctype html>

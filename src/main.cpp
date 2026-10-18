@@ -17,6 +17,7 @@ static volatile uint32_t isrPulses = 0;
 static volatile uint32_t isrEdges = 0;
 static volatile uint32_t isrLastUs = 0;
 static int flowPrev = HIGH;
+static volatile bool btnIrq = false;
 static uint32_t lastPulseMs = 0;
 static String pendingMsg;
 
@@ -207,6 +208,8 @@ static void handleLeak(bool repeatAlarm) {
 #endif
 }
 
+static void IRAM_ATTR onBtnFall() { btnIrq = true; }
+
 static BtnAction readButtonHold() {
   if (digitalRead(PIN_BUTTON) != LOW) return BTN_SERVICE;   // короткое нажатие уже отпущено
   uint32_t t0 = millis();
@@ -238,11 +241,27 @@ static void serviceSession(bool forceAp) {
   setCpuFrequencyMhz(160);
   readBattery();
   webStart(forceAp);
+  storageAddContact(CONTACT_WEB);
   WiFi.setSleep(false);  // иначе модемный сон глотает короткие импульсы геркона
   attachInterrupt(digitalPinToInterrupt(PIN_FLOW), onFlowChange, CHANGE);
+  while (digitalRead(PIN_BUTTON) == LOW) delay(1);
+  btnIrq = false;
+  attachInterrupt(digitalPinToInterrupt(PIN_BUTTON), onBtnFall, FALLING);
   if (!webIsAp()) notifyQueue("Веб-интерфейс открыт: http://" + WiFi.localIP().toString() + " (5 минут)");
-  uint32_t lastLeakPoll = millis(), lastBlink = 0;
+  uint32_t lastLeakPoll = millis(), lastBlink = 0, lastBtnLed = 0;
+  int btnPrev = HIGH;
   while (webLoop()) {
+    int btn = digitalRead(PIN_BUTTON);
+    if (btnIrq || (btnPrev == HIGH && btn == LOW)) {
+      btnIrq = false;
+      webTouch();
+      if (millis() - lastBtnLed > 200) {
+        lastBtnLed = millis();
+        ledBlink(1, 25, 0);
+        LOG("button: sleep timer reset\n");
+      }
+    }
+    btnPrev = btn;
     flowCollect();
     if (millis() - lastLeakPoll > 1000) {
       lastLeakPoll = millis();
@@ -255,6 +274,7 @@ static void serviceSession(bool forceAp) {
     if (!webIsAp() && !webFlowCalActive()) notifyFlush();
     delay(2);
   }
+  detachInterrupt(digitalPinToInterrupt(PIN_BUTTON));
   webStop();
   storageSaveCounters();
   setCpuFrequencyMhz(80);
@@ -300,6 +320,16 @@ static void waitFlowIdle() {
   }
 }
 
+static void prepWakePin(int pin) {
+  gpio_num_t g = (gpio_num_t)pin;
+  gpio_hold_dis(g);
+  pinMode(pin, INPUT_PULLUP);
+  gpio_pullup_en(g);
+  gpio_pulldown_dis(g);
+  gpio_sleep_set_direction(g, GPIO_MODE_INPUT);
+  gpio_sleep_set_pull_mode(g, GPIO_PULLUP_ONLY);
+}
+
 [[noreturn]] static void goToSleep(bool critical) {
   flowCollect();
   // RTC-память переживает сон, во flash пишем реже — при замене батареи потеряется максимум пара импульсов
@@ -307,18 +337,37 @@ static void waitFlowIdle() {
   hwPrepareSleep();
   netOff();
   detachInterrupt(digitalPinToInterrupt(PIN_FLOW));
+  detachInterrupt(digitalPinToInterrupt(PIN_BUTTON));
 
-  // не засыпаем посреди импульса RC-цепочки, иначе сразу проснёмся и посчитаем его дважды
-  uint32_t t0 = millis();
-  while (digitalRead(PIN_FLOW) == LOW && millis() - t0 < 200) delay(1);
-
-  uint64_t mask = 0;
-  if (!critical) mask |= 1ULL << PIN_FLOW;
-#if LEAK_SENSOR_ENABLED
-  if (!critical && !C.leakActive) mask |= 1ULL << PIN_LEAK;
+  prepWakePin(PIN_BUTTON);
+  prepWakePin(PIN_WAKE_REED);
+#if FLOW_WAKE_ENABLED
+  prepWakePin(PIN_FLOW);
 #endif
-  if (digitalRead(PIN_BUTTON) == HIGH) mask |= 1ULL << PIN_BUTTON;
-  if (mask) esp_deep_sleep_enable_gpio_wakeup(mask, ESP_GPIO_WAKEUP_GPIO_LOW);
+
+  // ждём отпускание, иначе уровень LOW сразу выдернет из сна
+  uint32_t t0 = millis();
+  while (millis() - t0 < 2500) {
+    bool idle = digitalRead(PIN_BUTTON) == HIGH && digitalRead(PIN_WAKE_REED) == HIGH;
+#if FLOW_WAKE_ENABLED
+    idle = idle && digitalRead(PIN_FLOW) == HIGH;
+#endif
+    if (idle) break;
+    delay(2);
+  }
+
+  // подтяжки RTC оставляем; gpio_hold на эти пины не ставим — иначе вход заморозится
+  uint64_t mask = 1ULL << PIN_BUTTON;
+  if (!critical) {
+    mask |= 1ULL << PIN_WAKE_REED;
+#if FLOW_WAKE_ENABLED
+    mask |= 1ULL << PIN_FLOW;
+#endif
+#if LEAK_SENSOR_ENABLED
+    if (!C.leakActive) mask |= 1ULL << PIN_LEAK;
+#endif
+  }
+  esp_deep_sleep_enable_gpio_wakeup(mask, ESP_GPIO_WAKEUP_GPIO_LOW);
 
   uint32_t sec = 0;
   if (!critical) {
@@ -347,9 +396,9 @@ void setup() {
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   uint64_t wakeMask = cause == ESP_SLEEP_WAKEUP_GPIO ? esp_sleep_get_gpio_wakeup_status() : 0;
 
-  for (int pin : {PIN_FLOW, PIN_LEAK, PIN_BUTTON, PIN_SENS_PWR}) gpio_hold_dis((gpio_num_t)pin);
+  for (int pin : {PIN_FLOW, PIN_WAKE_REED, PIN_BUTTON, PIN_SENS_PWR}) gpio_hold_dis((gpio_num_t)pin);
   pinMode(PIN_FLOW, INPUT_PULLUP);
-  pinMode(PIN_LEAK, INPUT_PULLUP);
+  pinMode(PIN_WAKE_REED, INPUT_PULLUP);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   hwInitPins();
   attachInterrupt(digitalPinToInterrupt(PIN_FLOW), onFlowChange, CHANGE);
@@ -359,24 +408,23 @@ void setup() {
   if (C.magic != COUNTERS_MAGIC) storageLoadCounters();
 
   bool coldStart = cause == ESP_SLEEP_WAKEUP_UNDEFINED;
-  bool flowWake = wakeMask & (1ULL << PIN_FLOW);
+  bool reedWake = (wakeMask & (1ULL << PIN_WAKE_REED)) || digitalRead(PIN_WAKE_REED) == LOW;
+  bool flowWake = (wakeMask & (1ULL << PIN_FLOW)) || false;
   bool btnWake = (wakeMask & (1ULL << PIN_BUTTON)) || digitalRead(PIN_BUTTON) == LOW;
-  LOG("wake cause=%d mask=0x%llx flow=%d leak=%d btn=%d\n", (int)cause, wakeMask,
-      digitalRead(PIN_FLOW), digitalRead(PIN_LEAK), digitalRead(PIN_BUTTON));
+  ledBlink(btnWake || coldStart ? 3 : 2, 80, 80);
+  LOG("wake cause=%d mask=0x%llx flow=%d reed=%d btn=%d\n", (int)cause, wakeMask,
+      digitalRead(PIN_FLOW), digitalRead(PIN_WAKE_REED), digitalRead(PIN_BUTTON));
 
   if (coldStart || btnWake) {
     PowerCheck pwr{};
     hwPowerCheck(pwr);
     readBattery();
-    LOG("pins: flow=%d leak=%d btn=%d  batt=%u mV (%u%%)\n",
-        digitalRead(PIN_FLOW), digitalRead(PIN_LEAK), digitalRead(PIN_BUTTON), C.battMv, C.battPct);
+    LOG("pins: flow=%d reed=%d btn=%d  batt=%u mV (%u%%)\n",
+        digitalRead(PIN_FLOW), digitalRead(PIN_WAKE_REED), digitalRead(PIN_BUTTON), C.battMv, C.battPct);
   }
 
-  // импульс, который нас разбудил, уже закончился к этому моменту — учитываем его здесь
-  if (flowWake) {
-    C.totalPulses++;
-    lastPulseMs = millis();
-  }
+  // геркон/расходомер будят; литры считает только GPIO3
+  if (reedWake || flowWake) lastPulseMs = millis();
 
   handleLeak(cause == ESP_SLEEP_WAKEUP_TIMER);
 
@@ -390,7 +438,7 @@ void setup() {
     serviceSession(act == BTN_AP || !S.ssid[0]);
   }
 
-  if (flowWake) handleFlowWake();
+  if (reedWake || flowWake) handleFlowWake();
   if (dailyDue()) dailyRoutine();
   waitFlowIdle();
   notifyFlush();
