@@ -237,14 +237,14 @@ function drawLog(list,id){const box=$(id||'logList');if(!box)return;const rows=l
 
 let prevLeft=-1;
 function render(s){st=s;
- const left=Math.max(0,+s.svcLeft||0);
- if(prevLeft>=0&&left>prevLeft+3)toast('Таймер сна сброшен');
- prevLeft=left;
- sleepUntil=Date.now()+left*1000;tickSleep();
+ const sec=Math.max(0,+s.svcLeft||0);
+ if(prevLeft>=0&&sec>prevLeft+3)toast('Таймер сна сброшен');
+ prevLeft=sec;
+ sleepUntil=Date.now()+sec*1000;tickSleep();
  $('hName').textContent=s.name;
  $('hSub').textContent=(s.mode=='ap'?'Точка доступа':'Wi-Fi «'+s.ssid+'»')+' · '+s.ip;
  if(s.log)drawLog(s.log);
- const fs=FS[s.fstate],left=Math.max(0,100-s.wear),arc=$('ringArc');
+ const fs=FS[s.fstate]||FS[0],left=Math.max(0,100-(+s.wear||0)),arc=$('ringArc');
  arc.style.strokeDashoffset=(326.7*(1-left/100)).toFixed(1);arc.style.stroke=fs[1];
  $('ringTxt').textContent=Math.round(left)+'%';
  $('fState').textContent=fs[0];$('fState').style.color=fs[1];
@@ -354,8 +354,9 @@ async function loadHist(){const h=await api('/api/history');
  chart('cT',T,lab,'#0b6bcb',[{y:t1,color:'#1aa260',label:'отл. '+t1},{y:t2,color:'#f0a020',label:'допуст. '+t2},{y:t3,color:'#e0413a',label:'плохо '+t3}]);
 }
 
-(async()=>{try{await api('/api/time',{epoch:Math.floor(Date.now()/1000)})}catch(e){}
- await refresh();loadSet();if(st&&!st.configured)show('set');setInterval(refresh,1000);setInterval(tickSleep,250)})();
+api('/api/time',{epoch:Math.floor(Date.now()/1000)}).catch(()=>{});
+refresh().then(()=>{loadSet();if(st&&!st.configured)show('set')});
+setInterval(refresh,1000);setInterval(tickSleep,250);
 </script></body></html>)HTML";
 
 const char SETUP_HTML[] PROGMEM = R"HTML(<!doctype html>

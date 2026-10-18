@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 
-#define FW_VERSION "1.1.7"
+#define FW_VERSION "1.1.8"
 
 // ===================== Пины ESP32-C3 =====================
 // Из deep sleep будят только GPIO0..GPIO5, а АЦП1 есть только на GPIO0..GPIO4,

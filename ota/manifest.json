@@ -1,5 +1,5 @@
 {
     "url":  "https://raw.githubusercontent.com/muharlyamovi/AquaSense/main/ota/firmware.bin",
-    "version":  "1.1.7",
-    "notes":  "Пробуждение из сна: кнопка, геркон и расходомер. Подтяжки GPIO во сне. Таймер сна и журнал связи."
+    "version":  "1.1.8",
+    "notes":  "Исправлена страница кабинета: снова подставляются TDS, литры и таймер сна."
 }
