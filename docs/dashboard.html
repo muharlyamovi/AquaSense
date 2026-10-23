@@ -250,7 +250,7 @@ function remember(s){try{localStorage.setItem('as_latest',JSON.stringify(s))}cat
 async function pullJson(url){const r=await fetch(url,{cache:'no-store'});if(!r.ok)return null;const s=await r.json();return s&&!s.err?s:null}
 async function pull(){
  const repo=(cred().repo||'muharlyamovi/AquaSense');
- const urls=['/latest.json','latest.json',
+ const urls=['latest.json','./latest.json',
   'https://raw.githubusercontent.com/'+repo+'/main/docs/latest.json',
   'https://raw.githubusercontent.com/'+repo+'/main/data/latest.json'];
  for(const u of urls){try{const s=await pullJson(u);if(s)return s}catch(e){}}
