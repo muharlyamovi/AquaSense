@@ -1,0 +1,21 @@
+name: cloud-pages
+on:
+  push:
+    paths:
+      - data/latest.json
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp data/latest.json docs/latest.json
+      - run: |
+          git config user.name aquasense-cloud
+          git config user.email aquasense@users.noreply.github.com
+          git add docs/latest.json
+          git diff --staged --quiet || git commit -m "cloud: обновить снимок для кабинета"
+          git push
